@@ -1,0 +1,92 @@
+Design to follow: 
+ Write a C++ application with below design: 
+1. If the passed command line is start. 
+2. Create a global mutex, this will help us to identify if another instance of the same application is running, this is needed as its inter process communication. 
+3. Start a thread which runs continuously with a sleep of 1 sec and write "Worker thread running" onto the console. The while will be running on flag. 
+4. After starting the thread wait on a global event. 
+5. If global event is acquired, which means another instance as set this event. Set the flag at Step 3 so that the worker thread exists. 
+6. When passed command line is "stop" then open the event in Step 4 and set the event.
+
+
+
+//Main application code 
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
+std::mutex m;
+std::condition_variable cv;
+bool flag = true;
+
+void workerThread(){
+    while(flag){
+        std::unique_lock<std::mutex> lck(m);
+        std::cout << "Worker thread running" << std::endl;
+        cv.wait_for(lck, std::chrono::seconds(1));
+    }
+}
+
+int main(int argc, char** argv){
+    std::thread t(workerThread);
+    if (argc > 1 && std::string(argv[1]) == "start"){
+        std::unique_lock<std::mutex> lck(m);
+        cv.wait(lck);
+        flag = false;
+    }
+    else if (argc > 1 && std::string(argv[1]) == "stop"){
+        std::unique_lock<std::mutex> lck(m);
+        cv.notify_one();
+    }
+    t.join();
+    return 0;
+}
+
+
+
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
+std::mutex global_mutex; // 1
+std::condition_variable global_event;
+bool flag = true;
+
+void worker_thread() {
+    while (flag) { // 3
+        std::unique_lock<std::mutex> lock(global_mutex);
+        std::cout << "Worker thread running" << std::endl;
+        lock.unlock();
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        std::cout << "Please provide a command line argument of 'start' or 'stop'" << std::endl;
+        return 1;
+    }
+
+    if (std::string(argv[1]) == "start") {
+        std::thread t(worker_thread);
+
+        std::unique_lock<std::mutex> lock(global_mutex); // 4
+        global_event.wait(lock); // 5
+        lock.unlock();
+        flag = false; // 6
+        t.join();
+    }
+    else if (std::string(argv[1]) == "stop") {
+        std::unique_lock<std::mutex> lock(global_mutex);
+        global_event.notify_one(); // 7
+        lock.unlock();
+    }
+    else {
+        std::cout << "Invalid command line argument. Please provide 'start' or 'stop'" << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
+
